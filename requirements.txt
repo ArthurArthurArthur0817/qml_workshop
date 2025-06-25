@@ -11,3 +11,4 @@ minigrid==3.0.0
 gym==0.26.2
 requests==2.32.4
 PyYAML==6.0.2
+mplfinance
