@@ -1,0 +1,13 @@
+torch==2.7.1
+torchvision==0.22.1
+torchaudio==2.7.1
+pandas==2.3.0
+scikit-learn==1.7.0
+matplotlib==3.10.3
+pennylane==0.41.1
+pennylane-lightning==0.41.1
+gymnasium==1.1.1
+minigrid==3.0.0
+gym==0.26.2
+requests==2.32.4
+PyYAML==6.0.2
