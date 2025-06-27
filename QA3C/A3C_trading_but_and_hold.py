@@ -65,7 +65,7 @@ class TradingEnv:
         #   - 持倉價值比例: (持有股數 * 現價) / 初始現金
         #   - 未實現損益百分比: (現價 - 平均買入價) / 平均買入價
         #   - 價格與短期均線的相對位置: (現價 - 5日均線) / 5日均線
-        self.observation_space_shape = (lstm_params['output_size'] + 5,)
+        self.observation_space_shape = (lstm_params['output_size'] + 4,)
         self.action_space_n = 3
 
         self.initial_cash = 100000
@@ -81,7 +81,6 @@ class TradingEnv:
         3. 持有部位價值佔初始資金的比例 (1-dim)
         4. 未實現損益百分比 (1-dim)
         5. 價格與短期均線的相對位置 (1-dim)
-        6. 成本與現價的相對位置 (1-dim)
         """
         # 1. LSTM 輸出 (市場趨勢預測)
         if self.current_step < self.sequence_length - 1:
@@ -112,22 +111,16 @@ class TradingEnv:
         holdings_ratio = holdings_value / self.initial_cash
 
         # 2.3 未實現損益百分比
-        avg_buy_price = 0.0
         unrealized_pnl_percentage = 0.0
-        avg_price_ratio = 0.0
         total_shares = sum(self.active_trades_shares)
         if total_shares > 0:
             avg_buy_price = np.average(
                 self.active_trades_buy_prices,
                 weights=self.active_trades_shares
             )
-            if avg_buy_price > 0:  # 未實現損益百分比
+            if avg_buy_price > 0:
                 unrealized_pnl_percentage = (current_price - avg_buy_price) / avg_buy_price
-            
-            if current_price > 0:  # 成本與現價的相對位置
-                avg_price_ratio = (current_price - avg_buy_price) / current_price
-
-
+        
         # 2.4 價格與短期均線的相對位置
         ma5 = self.df['ma5'].iloc[self.current_step]
         price_ma_ratio = 0.0
@@ -139,8 +132,7 @@ class TradingEnv:
             cash_ratio,
             holdings_ratio,
             unrealized_pnl_percentage,
-            price_ma_ratio,
-            avg_price_ratio 
+            price_ma_ratio
         ], dtype=torch.float32)
 
         full_state = torch.cat((lstm_state, additional_state))
@@ -156,147 +148,52 @@ class TradingEnv:
         self.current_step = self.sequence_length - 1
         self.cash = self.initial_cash
         self.portfolio_value = self.initial_cash
-        self.portfolio_history = []
         self.historical_trades = []
         self._reset_trade_state()
         return self._get_state()
 
-    # def step(self, action):
-    #     """執行一步動作，包含新的交易邏輯與詳細的日誌輸出"""
-    #     self.current_step += 1
-    #     done = self.current_step >= len(self.df) - 1
-
-    #     current_price = self.df['close'].iloc[self.current_step]
-    #     reward = 0
-    #     action_str = {0: "Hold", 1: "Buy", 2: "Sell"}.get(action, "Unknown")
-        
-    #     info = {'action_taken': 'hold'} # [修改] 初始化 info，預設為 hold
-
-    #     # print(f"\n--- Step: {self.current_step}, Price: {current_price:.4f}, Action: {action_str} ---")
-
-    #     # --- 執行動作 ---
-    #     if action == 1: # Buy
-    #         if self.cash >= self.trade_amount:
-    #             shares_bought = self.trade_amount / current_price
-    #             self.cash -= self.trade_amount
-    #             self.active_trades_buy_prices.append(current_price)
-    #             self.active_trades_shares.append(shares_bought)
-    #             info['action_taken'] = 'buy' # [修改] 記錄實際執行的動作
-    #             # print(f"  [Buy] Bought {shares_bought:.4f} shares. Cash left: {self.cash:.2f}")
-    #         else:
-    #             reward -= 0.1 # 懲罰想賣但沒倉位的行為
-    #             # print(f"  [Buy] Insufficient cash. Wanted to buy, but did nothing.")
-        
-    #     elif action == 2: # Sell
-    #         total_shares = sum(self.active_trades_shares)
-    #         if total_shares > 0:
-    #             avg_buy_price = np.average(
-    #                 self.active_trades_buy_prices,
-    #                 weights=self.active_trades_shares
-    #             )
-    #             realized_profit = (current_price - avg_buy_price) * total_shares
-    #             reward = realized_profit # 已實現的利潤直接作為 reward
-
-    #             if realized_profit > 0:
-    #                 reward += realized_profit * 0.1 # 額外給予實現利潤的 10% 作為獎勵
-
-    #             self.cash += total_shares * current_price
-    #             info['action_taken'] = 'sell' # [修改] 記錄實際執行的動作
-
-    #             # print(f"  [Sell] Sold {total_shares:.4f} shares. Avg Buy Price: {avg_buy_price:.4f}, Sell Price: {current_price:.4f}")
-    #             # print(f"  [Sell] Realized Profit for this trade: {realized_profit:.2f}")
-
-    #             trade_log = {
-    #                 'buy_prices': self.active_trades_buy_prices.copy(),
-    #                 'buy_shares': self.active_trades_shares.copy(),
-    #                 'sell_price': current_price,
-    #                 'total_shares': total_shares,
-    #                 'profit': realized_profit,
-    #                 'step': self.current_step
-    #             }
-    #             self.historical_trades.append(trade_log)
-                
-    #             self._reset_trade_state()
-    #         else:
-    #             reward -= 0.1 # 懲罰想賣但沒倉位的行為
-    #             # print(f"  [Sell] No shares to sell. Did nothing.")
-
-    #     # --- 計算未實現損益作為密集獎勵 ---
-    #     unrealized_pnl = 0
-    #     if action != 2:
-    #         current_holdings_value = sum(self.active_trades_shares) * current_price
-    #         new_portfolio_value = self.cash + current_holdings_value
-    #         unrealized_pnl = new_portfolio_value - self.portfolio_value
-    #         self.portfolio_value = new_portfolio_value
-    #     else:
-    #         self.portfolio_value = self.cash
-
-    #     reward += unrealized_pnl # 將未實現損益加入獎勵
-    #     reward = np.clip(reward, -1.0, 5.0)  # 限制了其強度
-
-    #     # 計算最近 N 步的 portfolio value 波動率
-    #     self.portfolio_history.append(self.portfolio_value) # 需要一個 list 來記錄歷史價值
-    #     if len(self.portfolio_history) > 20: # 例如看最近20步
-    #         portfolio_volatility = np.std(self.portfolio_history[-20:])
-    #     else:
-    #         portfolio_volatility = 0
-    #     risk_penalty = portfolio_volatility * 0.01 # 權重 0.01 可調
-    #     reward -= risk_penalty
-
-    #     # print(f"  Portfolio: Cash {self.cash:.2f}, Holdings {sum(self.active_trades_shares):.4f} shares")
-    #     # print(f"  Values: Unrealized PnL: {unrealized_pnl:.2f}, Step Reward: {reward:.2f}, Portfolio Value: {self.portfolio_value:.2f}")
-        
-    #     next_state = self._get_state()
-    #     info['historical_trades'] = self.historical_trades # [修改] 將交易歷史加入 info
-        
-    #     return next_state, reward, done, False, info
-
     def step(self, action):
-        """
-        執行一步動作，並返回結果。
-        此版本包含了修正後的獎勵機制，以解決模型「只買不賣」的問題。
-        """
+        """執行一步動作，包含新的交易邏輯與詳細的日誌輸出"""
         self.current_step += 1
         done = self.current_step >= len(self.df) - 1
 
         current_price = self.df['close'].iloc[self.current_step]
-        
-        # 初始化回傳資訊
-        info = {'action_taken': 'hold'} # 預設為持有
         reward = 0
-        realized_profit = 0 # 初始化已實現利潤為 0
-
-        # --- 步驟 1: 根據 action 執行交易 ---
         action_str = {0: "Hold", 1: "Buy", 2: "Sell"}.get(action, "Unknown")
         
-        # 動作 1: 買入
-        if action == 1:
+        info = {'action_taken': 'hold'} # [修改] 初始化 info，預設為 hold
+
+        # print(f"\n--- Step: {self.current_step}, Price: {current_price:.4f}, Action: {action_str} ---")
+
+        # --- 執行動作 ---
+        if action == 1: # Buy
             if self.cash >= self.trade_amount:
                 shares_bought = self.trade_amount / current_price
                 self.cash -= self.trade_amount
                 self.active_trades_buy_prices.append(current_price)
                 self.active_trades_shares.append(shares_bought)
-                info['action_taken'] = 'buy'
+                info['action_taken'] = 'buy' # [修改] 記錄實際執行的動作
+                # print(f"  [Buy] Bought {shares_bought:.4f} shares. Cash left: {self.cash:.2f}")
             else:
-                # 錢不夠買，此為無效操作，稍後在獎勵計算中懲罰
-                info['action_taken'] = 'invalid_buy'
-
-        # 動作 2: 賣出
-        elif action == 2:
+                reward -= 0.1 # 懲罰想賣但沒倉位的行為
+                # print(f"  [Buy] Insufficient cash. Wanted to buy, but did nothing.")
+        
+        elif action == 2: # Sell
             total_shares = sum(self.active_trades_shares)
             if total_shares > 0:
                 avg_buy_price = np.average(
                     self.active_trades_buy_prices,
                     weights=self.active_trades_shares
                 )
-                # 計算此次賣出的已實現利潤
                 realized_profit = (current_price - avg_buy_price) * total_shares
+                reward = realized_profit # 已實現的利潤直接作為 reward
                 
-                # 將股票轉換為現金
                 self.cash += total_shares * current_price
-                info['action_taken'] = 'sell'
+                info['action_taken'] = 'sell' # [修改] 記錄實際執行的動作
 
-                # 記錄這次完整的交易歷史
+                # print(f"  [Sell] Sold {total_shares:.4f} shares. Avg Buy Price: {avg_buy_price:.4f}, Sell Price: {current_price:.4f}")
+                # print(f"  [Sell] Realized Profit for this trade: {realized_profit:.2f}")
+
                 trade_log = {
                     'buy_prices': self.active_trades_buy_prices.copy(),
                     'buy_shares': self.active_trades_shares.copy(),
@@ -307,60 +204,29 @@ class TradingEnv:
                 }
                 self.historical_trades.append(trade_log)
                 
-                # 清空當前持倉
                 self._reset_trade_state()
             else:
-                # 沒倉位可賣，此為無效操作，稍後在獎勵計算中懲罰
-                info['action_taken'] = 'invalid_sell'
-                
-        # --- 步驟 2: 計算獎勵 (修正後的核心邏輯) ---
+                reward -= 0.1 # 懲罰想賣但沒倉位的行為
+                # print(f"  [Sell] No shares to sell. Did nothing.")
 
-        # 情況 A：如果剛剛執行了一次有效的「賣出」
-        if info['action_taken'] == 'sell':
-            # 獎勵直接來自於「已實現的利潤」，這個數值 *不* 進行裁剪，
-            # 才能讓模型感受到巨大獲利帶來的強烈正面訊號。
-            reward = realized_profit
-            if realized_profit > 0:
-                # 對於獲利的交易，給予額外 10% 的獎勵，強化正面行為
-                reward += realized_profit * 0.1
-            
-            # 賣出後，更新當前的總資產價值
-            self.portfolio_value = self.cash
-            
-        # 情況 B：如果執行的是「持有」、「買入」或「無效操作」
-        else:
-            # 1. 計算資產組合的未實現損益 (Unrealized PnL)
+        # --- 計算未實現損益作為密集獎勵 ---
+        unrealized_pnl = 0
+        if action != 2:
             current_holdings_value = sum(self.active_trades_shares) * current_price
             new_portfolio_value = self.cash + current_holdings_value
             unrealized_pnl = new_portfolio_value - self.portfolio_value
             self.portfolio_value = new_portfolio_value
-            
-            # 以未實現損益作為基礎的密集獎勵
-            dense_reward = unrealized_pnl
-            
-            # 2. 加入對無效操作的懲罰
-            if info['action_taken'] in ['invalid_buy', 'invalid_sell']:
-                dense_reward -= 0.1  # 給予一個小的負獎勵
+        else:
+            self.portfolio_value = self.cash
 
-            # 3. 加入對資產價值劇烈波動的風險懲罰
-            self.portfolio_history.append(self.portfolio_value)
-            if len(self.portfolio_history) > 20: # 計算最近20步的標準差
-                portfolio_volatility = np.std(self.portfolio_history[-20:])
-            else:
-                portfolio_volatility = 0
-            risk_penalty = portfolio_volatility * 0.01 # 可調權重
-            dense_reward -= risk_penalty
-
-            # 4. **關鍵點**：只對這些高頻率的、數值較小的「密集獎勵」進行裁剪
-            # 以穩定訓練過程，防止梯度爆炸，但又不會抹煞真實的獲利訊號。
-            reward = np.clip(dense_reward, -1.0, 5.0)
-
-        # --- 步驟 3: 準備並回傳結果 ---
-        next_state = self._get_state()
-        info['historical_trades'] = self.historical_trades # 將交易歷史放入 info 中
+        reward += unrealized_pnl # 將未實現損益加入獎勵
         
-        # 回傳 (next_state, reward, done, truncated, info)
-        # 根據新的 Gym API，回傳包含 5 個值，此處 truncated 設為 False
+        # print(f"  Portfolio: Cash {self.cash:.2f}, Holdings {sum(self.active_trades_shares):.4f} shares")
+        # print(f"  Values: Unrealized PnL: {unrealized_pnl:.2f}, Step Reward: {reward:.2f}, Portfolio Value: {self.portfolio_value:.2f}")
+        
+        next_state = self._get_state()
+        info['historical_trades'] = self.historical_trades # [修改] 將交易歷史加入 info
+        
         return next_state, reward, done, False, info
 
 # --- A3C 模型與 Worker ---
@@ -405,12 +271,9 @@ class Net(nn.Module):
         
         probs = F.softmax(logits, dim=1)
         m = self.distribution(probs)
-
-        entropy = m.entropy()
-
         exp_v = m.log_prob(a) * td.detach().squeeze()
         a_loss = -exp_v
-        total_loss = (c_loss + a_loss - A3C_PARAMS['entropy_beta'] * entropy).mean()
+        total_loss = (c_loss + a_loss).mean()
         return total_loss
 
 class Worker(mp.Process):
@@ -451,9 +314,9 @@ class Worker(mp.Process):
                 total_step += 1
         self.res_queue.put(None)
 
-def plot_trade_history(df, trade_log, filename, title):
+def plot_trade_history(df, trade_log, filename="A3C_trade_visual.png"):
     """
-    [修改] 繪製收盤價與買賣點的可視化圖表，可自訂標題與檔名。
+    [新增] 繪製收盤價與買賣點的可視化圖表。
     """
     plt.style.use('seaborn-v0_8-darkgrid')
     plt.figure(figsize=(20, 10))
@@ -474,55 +337,24 @@ def plot_trade_history(df, trade_log, filename, title):
     if sell_indices:
         plt.scatter(sell_indices, sell_prices, marker='v', color='red', s=120, label='Sell Signal', edgecolors='black', zorder=5)
     
-    plt.title(f'Agent Trading Actions on {title}', fontsize=20)
-    plt.xlabel(f'Time Steps in {title}', fontsize=15)
+    plt.title('Agent Trading Actions on Test Data', fontsize=20)
+    plt.xlabel('Time Steps in Test Set', fontsize=15)
     plt.ylabel('Price (USD/TWD)', fontsize=15)
     plt.legend(fontsize=12)
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
     plt.tight_layout()
-    # plt.savefig(filename)
     plt.show()
+    # plt.savefig(filename)
     plt.close()
     print(f"交易可視化圖表已儲存至：{filename}")
-
-def run_evaluation(df, gnet, lstm_model, device, title, filename):
-    """
-    [新增] 在給定的資料集上執行評估，並繪製交易點位圖。
-    """
-    print(f"\n在 {title} 上執行評估...")
-    eval_df = df.reset_index(drop=True)
-    eval_env = TradingEnv(eval_df, lstm_model, device)
-    
-    s = eval_env.reset()
-    done = False
-    trade_log_for_plot = []
-    
-    while not done:
-        a = gnet.choose_best_action(v_wrap(s.unsqueeze(0)))
-        s_next, r, done, _, info = eval_env.step(a)
-        
-        action_taken = info.get('action_taken', 'hold')
-        if action_taken in ['buy', 'sell']:
-            price = eval_df['close'].iloc[eval_env.current_step]
-            trade_log_for_plot.append({
-                'step': eval_env.current_step,
-                'action': action_taken,
-                'price': price
-            })
-        
-        s = s_next
-
-    plot_trade_history(eval_df, trade_log_for_plot, filename=filename, title=title)
-    print(f"{title} 評估與繪圖完成。")
 
 # --- 主程式 ---
 A3C_PARAMS = {
     'update_global_iter': 50,
-    'gamma': 0.99,
-    'max_ep': 2000,
-    'lr': 1e-5,
-    'entropy_beta': 0.01
+    'gamma': 0.9,
+    'max_ep': 3000,
+    'lr': 1e-4,
 }
 
 if __name__ == "__main__":
@@ -573,7 +405,7 @@ if __name__ == "__main__":
     global_ep, global_ep_r, res_queue = mp.Value('i', 0), mp.Value('d', 0.), mp.Queue()
 
     # --- 步驟 4: 啟動並行訓練 ---
-    num_workers = min(mp.cpu_count(), 10) # 方便除錯，使用單一 worker
+    num_workers = min(mp.cpu_count(), 4) # 方便除錯，使用單一 worker
     print(f"啟動 {num_workers} 個 Worker 進行並行訓練...")
     workers = [Worker(gnet, opt, global_ep, global_ep_r, res_queue, i, train_df, lstm_model, device) for i in range(num_workers)]
     [w.start() for w in workers]
@@ -594,28 +426,28 @@ if __name__ == "__main__":
     torch.save(gnet.state_dict(), "A3C_trading_model.pth")
     print("結果已儲存。")
     
-    # --- [修改] 步驟 6: 在訓練集與測試集上評估並繪製交易點位圖 ---
-    print("\n--- 開始執行評估 ---")
+    # --- [新增] 步驟 6: 在測試集上評估並繪製交易點位圖 ---
+    print("\n在測試集上執行評估並產生交易點位圖...")
+    test_df = full_data_df[split_point:].reset_index(drop=True)
+    eval_env = TradingEnv(test_df, lstm_model, device)
     
-    # 評估訓練集
-    run_evaluation(
-        df=train_df, 
-        gnet=gnet, 
-        lstm_model=lstm_model, 
-        device=device,
-        title="Training Data",
-        filename="A3C_trade_visual_train.png"
-    )
+    s = eval_env.reset()
+    done = False
+    trade_log_for_plot = []
     
-    # 評估測試集
-    test_df = full_data_df[split_point:]
-    run_evaluation(
-        df=test_df,
-        gnet=gnet,
-        lstm_model=lstm_model,
-        device=device,
-        title="Testing Data",
-        filename="A3C_trade_visual_test.png"
-    )
-    
-    print("\n所有評估與繪圖完成。")
+    while not done:
+        a = gnet.choose_best_action(v_wrap(s.unsqueeze(0)))
+        s_next, r, done, _, info = eval_env.step(a)
+        
+        action_taken = info.get('action_taken', 'hold')
+        if action_taken in ['buy', 'sell']:
+            trade_log_for_plot.append({
+                'step': eval_env.current_step,
+                'action': action_taken,
+                'price': test_df['close'].iloc[eval_env.current_step]
+            })
+        
+        s = s_next
+
+    plot_trade_history(test_df, trade_log_for_plot)
+    print("評估與繪圖完成。")

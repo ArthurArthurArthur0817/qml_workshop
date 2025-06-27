@@ -8,6 +8,10 @@ import numpy as np
 
 
 def v_wrap(np_array, dtype=np.float32):
+	if isinstance(np_array, torch.Tensor):
+		# 如果傳入的是 Tensor，直接轉換為 float32 Tensor
+		return np_array.float()
+		
 	if np_array.dtype != dtype:
 		np_array = np_array.astype(dtype)
 	return torch.from_numpy(np_array)

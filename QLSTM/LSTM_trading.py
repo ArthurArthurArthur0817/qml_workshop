@@ -141,18 +141,19 @@ def plot_confusion_matrix(y_true, y_pred, class_names):
     plt.tight_layout()
     plt.show()
 
-if __name__ == "__main__":
-    params = {
-        'feature_columns': ['open', 'high', 'low', 'close', 'ma5', 'ma10'],
-        'sequence_length': 8,
-        'hidden_size': 16,
-        'output_size': 2,
-        'num_layers': 1,
-        'learning_rate': 0.001,
-        'batch_size': 16,
-        'epochs': 20,
-    }
+# 不放在 main 裡面，是為了讓 A3C_trading.py 可以載入這些參數
+params = {
+    'feature_columns': ['open', 'high', 'low', 'close', 'ma5', 'ma10'],
+    'sequence_length': 8,
+    'hidden_size': 16,
+    'output_size': 2,
+    'num_layers': 1,
+    'learning_rate': 0.001,
+    'batch_size': 16,
+    'epochs': 20,
+}
 
+if __name__ == "__main__":
     # 步驟 1: 建立包含所有 features 和 labels 的 DataFrame
     full_data_df = create_features_and_labels(file_path='USD_TWD_Historical Data.csv', num_rows=10000)
 
