@@ -6,8 +6,11 @@
   - [ ] 改成 QLSTM 純 CPU 執行 (pending...) 
 2. 拿取 QLSTM 提供的訊號作為 state，使用 A3C 進行自動交易 :
   - [x] 建立 QA3C 環境，並成功執行學長 code
-  - [ ] 使用 LSTM 給予訊號，先建立第一版最簡單的 A3C
-  - [ ] 建立完整版的 A3C
+  - [x] 使用 LSTM 給予訊號，先建立第一版最簡單的 A3C
+  - [x] 建立完整版的 A3C
+3. 輸出交易狀態資訊與圖表
+  - [x] 使用 vectorbt 輸出狀態資訊
+  - [ ] 使用 vectorbt 輸出圖表
 
 # enviroments
 新的環境可執行 QLSTM 和 QA3C，已確定能在 win11, mac, colab 上安裝執行
