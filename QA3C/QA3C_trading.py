@@ -29,6 +29,57 @@ from QA3C.shared_adam import SharedAdam
 
 os.environ["OMP_NUM_THREADS"] = "1"
 
+# ===== Quantum Layer Functions for VQC =====
+def H_layer(nqubits):
+    """Layer of single-qubit Hadamard gates."""
+    for idx in range(nqubits):
+        qml.Hadamard(wires=idx)
+
+def RY_layer(w):
+    """Layer of parametrized qubit rotations around the y axis."""
+    for idx, element in enumerate(w):
+        qml.RY(element, wires=idx)
+
+def entangling_layer(nqubits):
+    """Layer of CNOTs followed by another shifted layer of CNOT."""
+    for i in range(0, nqubits - 1, 2):  # Loop over even indices: i=0,2,...N-2
+        qml.CNOT(wires=[i, i + 1])
+    for i in range(1, nqubits - 1, 2):  # Loop over odd indices:  i=1,3,...N-3
+        qml.CNOT(wires=[i, i + 1])
+
+def q_function(x, q_weights, n_class):
+    """The variational quantum circuit."""
+    n_dep = q_weights.shape[0]
+    n_qub = q_weights.shape[1]
+    
+    H_layer(n_qub)
+    
+    # Embed features in the quantum node
+    RY_layer(x)
+    
+    # Sequence of trainable variational layers
+    for k in range(n_dep):
+        entangling_layer(n_qub)
+        RY_layer(q_weights[k])
+    
+    # Expectation values in the Z basis
+    exp_vals = [qml.expval(qml.PauliZ(position)) for position in range(n_class)]
+    return exp_vals
+
+class TorchVQC(nn.Module):
+    """Quantum Variational Circuit wrapped as PyTorch Module"""
+    def __init__(self, vqc_depth, n_qubits, n_class):
+        super().__init__()
+        self.weights = nn.Parameter(0.01 * torch.randn(vqc_depth, n_qubits))
+        self.dev = qml.device("default.qubit", wires=n_qubits)
+        self.VQC = qml.QNode(q_function, self.dev, interface="torch")
+        self.n_class = n_class
+    
+    def forward(self, X):
+        y_preds = torch.stack([torch.stack(self.VQC(x, self.weights, self.n_class)).float() for x in X])
+        return y_preds
+# ===== End of Quantum Layer Functions =====
+
 # QLSTM 參數
 qlstm_params = {
     'feature_columns': ['open', 'high', 'low', 'close', 'ma5', 'ma10'],
@@ -275,24 +326,42 @@ class TradingEnv:
 
         return next_state, final_reward, done, False, info
 
-# --- A3C 模型與 Worker ---
+# --- Quantum A3C 模型與 Worker ---
 class Net(nn.Module):
     def __init__(self, s_dim, a_dim):
         super(Net, self).__init__()
+        # Quantum hyperparameters
+        latent_dim = 8
+        q_depth = 2
+        n_qubits = 8
+        
         self.s_dim = s_dim
         self.a_dim = a_dim
-        self.pi1 = nn.Linear(s_dim, 128)
-        self.pi2 = nn.Linear(128, a_dim)
-        self.v1 = nn.Linear(s_dim, 128)
-        self.v2 = nn.Linear(128, 1)
+        
+        # Actor network with quantum layer
+        self.pi1 = nn.Linear(s_dim, latent_dim)
+        self.pi_vqc = TorchVQC(vqc_depth=q_depth, n_qubits=n_qubits, n_class=latent_dim)
+        self.pi2 = nn.Linear(latent_dim, a_dim)
+        
+        # Critic network with quantum layer
+        self.v1 = nn.Linear(s_dim, latent_dim)
+        self.v_vqc = TorchVQC(vqc_depth=q_depth, n_qubits=n_qubits, n_class=latent_dim)
+        self.v2 = nn.Linear(latent_dim, 1)
+        
         set_init([self.pi1, self.pi2, self.v1, self.v2])
         self.distribution = torch.distributions.Categorical
 
     def forward(self, x):
+        # Actor with quantum layer
         pi1 = torch.tanh(self.pi1(x))
+        pi1 = torch.tanh(self.pi_vqc(pi1))
         logits = self.pi2(pi1)
+        
+        # Critic with quantum layer
         v1 = torch.tanh(self.v1(x))
+        v1 = torch.tanh(self.v_vqc(v1))
         values = self.v2(v1)
+        
         return logits, values
 
     def choose_action(self, s):
@@ -572,7 +641,7 @@ A3C_PARAMS = {
     'lr': 1e-5,  # 1e-5
     'entropy_beta': 0.05,  # 0.01
     'train_split': 0.8,
-    'weight_path': 'QA3C/models/qa3c_model_ep_630.pth',  # Path to checkpoint model to resume training from
+    'weight_path': None,  # Path to checkpoint model to resume training from
 }
 
 if __name__ == "__main__":
