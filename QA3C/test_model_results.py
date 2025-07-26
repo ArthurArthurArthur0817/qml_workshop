@@ -169,14 +169,11 @@ def main(weight_path, data_path=None, train_split=0.8):
     print("\n評估完成！")
 
 if __name__ == "__main__":
-    # ========== 手動設定參數區域 ==========
-    # 在這裡填寫您要評估的模型路徑
     WEIGHT_PATH = 'QA3C/models/a3c_qlstm/qa3c_model_ep.pth'  # <- 請在這裡修改模型路徑
     DATA_PATH = None   # 有預設路徑
     TRAIN_SPLIT = 0.8  # 訓練集比例
     # =====================================
     
-    # 如果要使用命令行參數，將 USE_CLI 設為 True
     print(f"使用手動設定的參數：")
     print(f"  模型路徑: {WEIGHT_PATH}")
     print(f"  資料路徑: {DATA_PATH if DATA_PATH else '使用預設路徑'}")

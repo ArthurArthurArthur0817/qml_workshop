@@ -29,6 +29,35 @@ from QA3C.shared_adam import SharedAdam
 
 os.environ["OMP_NUM_THREADS"] = "1"
 
+def print_model_summary(model: nn.Module, model_name: str = "Model"):
+    """
+    印出一個 PyTorch 模型的分層參數摘要，包含總參數數量。
+
+    Args:
+        model (nn.Module): 要分析的 PyTorch 模型。
+        model_name (str): 顯示在摘要標題中的模型名稱。
+    """
+    print("=" * 70)
+    print(f"{model_name} Parameters Summary")
+    print("-" * 70)
+    print(f"{'層名稱 (Layer Name)':<35} {'形狀 (Shape)':<20} {'參數數量':>12}")
+    print("-" * 70)
+    
+    total_params = 0
+    
+    # 遍歷模型中所有命名的參數
+    for name, param in model.named_parameters():
+        # 只計算需要計算梯度的參數（可訓練的參數）
+        if param.requires_grad:
+            num_params = param.numel()
+            total_params += num_params
+            shape_str = str(list(param.shape))
+            print(f"{name:<35} {shape_str:<20} {num_params:>12,}")
+            
+    print("-" * 70)
+    print(f"總可訓練參數 (Total Trainable Parameters): {total_params:>15,}")
+    print("=" * 70)
+
 # QLSTM 參數
 qlstm_params = {
     'feature_columns': ['open', 'high', 'low', 'close', 'ma5', 'ma10'],
@@ -629,6 +658,7 @@ if __name__ == "__main__":
     del dummy_env
 
     gnet = Net(N_S, N_A)
+    print_model_summary(gnet, model_name="A3C Agent")
     gnet.share_memory()
     
     # Load checkpoint if weight_path is provided

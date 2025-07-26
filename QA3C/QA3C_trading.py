@@ -29,6 +29,35 @@ from QA3C.shared_adam import SharedAdam
 
 os.environ["OMP_NUM_THREADS"] = "1"
 
+def print_model_summary(model: nn.Module, model_name: str = "Model"):
+    """
+    印出一個 PyTorch 模型的分層參數摘要，包含總參數數量。
+
+    Args:
+        model (nn.Module): 要分析的 PyTorch 模型。
+        model_name (str): 顯示在摘要標題中的模型名稱。
+    """
+    print("=" * 70)
+    print(f"{model_name} Parameters Summary")
+    print("-" * 70)
+    print(f"{'層名稱 (Layer Name)':<35} {'形狀 (Shape)':<20} {'參數數量':>12}")
+    print("-" * 70)
+    
+    total_params = 0
+    
+    # 遍歷模型中所有命名的參數
+    for name, param in model.named_parameters():
+        # 只計算需要計算梯度的參數（可訓練的參數）
+        if param.requires_grad:
+            num_params = param.numel()
+            total_params += num_params
+            shape_str = str(list(param.shape))
+            print(f"{name:<35} {shape_str:<20} {num_params:>12,}")
+            
+    print("-" * 70)
+    print(f"總可訓練參數 (Total Trainable Parameters): {total_params:>15,}")
+    print("=" * 70)
+
 # ===== Quantum Layer Functions for VQC =====
 def H_layer(nqubits):
     """Layer of single-qubit Hadamard gates."""
@@ -455,7 +484,7 @@ def plot_trade_history(df, trade_log, portfolio_history, initial_cash, filename,
     """
     plt.style.use('seaborn-v0_8-darkgrid')
     
-    # 建立兩個子圖，垂直堆疊，共享 x 軸
+    # === 第一張圖：原始的兩個子圖（價格 + PnL）===
     fig, (ax1, ax2) = plt.subplots(
         2, 1, 
         figsize=(20, 15), 
@@ -504,10 +533,43 @@ def plot_trade_history(df, trade_log, portfolio_history, initial_cash, filename,
     # 調整佈局
     plt.tight_layout()
     plt.subplots_adjust(top=0.95, hspace=0.1) # 為 suptitle 留出空間，並減少子圖間距
-    # plt.savefig(filename)
+    plt.savefig(filename)
     plt.show()
     plt.close()
     print(f"交易可視化圖表已儲存至：{filename}")
+    
+    # === 第二張圖：單獨的 PnL 圖 ===
+    if portfolio_history:
+        # 創建新的圖形
+        fig_pnl, ax_pnl = plt.subplots(1, 1, figsize=(12, 8))
+        fig_pnl.suptitle(f'Agent Trading Performance on {title}', fontsize=24)
+        
+        # 計算累積損益
+        portfolio_values = np.array(portfolio_history)
+        cumulative_pnl = portfolio_values - initial_cash
+        
+        # 繪製累積損益線
+        ax_pnl.plot(df.index, cumulative_pnl, color='purple', linewidth=2)
+        
+        # 為正負損益區域上色
+        ax_pnl.fill_between(df.index, cumulative_pnl, where=(cumulative_pnl >= 0), 
+                           color='green', alpha=0.3, interpolate=True)
+        ax_pnl.fill_between(df.index, cumulative_pnl, where=(cumulative_pnl < 0), 
+                           color='red', alpha=0.3, interpolate=True)
+        
+        # 添加零線
+        ax_pnl.axhline(0, color='grey', linestyle='--', linewidth=1)
+        
+        # 設置標籤和格式
+        ax_pnl.set_xlabel(f'Time Steps in {title}', fontsize=22)
+        ax_pnl.set_ylabel('Cumulative PnL (USD)', fontsize=22)
+        ax_pnl.grid(True, alpha=0.3)
+        ax_pnl.tick_params(axis='both', labelsize=20)
+        
+        # 調整佈局
+        plt.tight_layout()
+        plt.show()
+        plt.close()
 
 def run_evaluation(df, gnet, lstm_model, device, title, filename):
     """
@@ -698,6 +760,8 @@ if __name__ == "__main__":
     del dummy_env
 
     gnet = Net(N_S, N_A)
+    print_model_summary(gnet, model_name="QA3C Agent")
+    raise ValueError()
     gnet.share_memory()
     
     # Load checkpoint if weight_path is provided

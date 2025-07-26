@@ -406,7 +406,7 @@ if __name__ == '__main__':
 		'sequence_length': 4,
 		'input_size': 6,   # will be updated in main() based on feature_columns
 		'hidden_size': 2,  # 4
-		'output_size': 2,  # (上漲>1%, 下跌>1%)
+		'output_size': 2,  # (上漲>1.2%, 下跌>1.2%)
 		'qnn_depth': 1,    # 3
 		'batch_size': 4,
 		'learning_rate': 5e-3,
