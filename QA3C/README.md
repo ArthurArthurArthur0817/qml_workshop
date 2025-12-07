@@ -2,19 +2,18 @@
 ---
 
 ## 🚀 Highlights
-- 學長的程式碼: `discrete_A3C_vqc.py`
-- QLSTM + classical A3C 版本: `A3C_trading.py`
-- QLSTM + QA3C 版本: `QA3C_trading.py` # 2025-7-26 updated
+- QLSTM + classical A3C version: `A3C_trading.py`
+- QLSTM + QA3C version: `QA3C_trading.py` 
 ---
 
-# 執行方式
+# How to Run
 ```
 cd ./QA3C
 python ./QA3C_trading.py
 ```
 
-# 保存模型
-訓練完後 model 會被保存到 `./models` 下
+# Model Saving
+After training, the model will be saved under the ./models directory.
 
 # Evaluation
 ```
