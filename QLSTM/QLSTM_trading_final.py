@@ -150,8 +150,8 @@ class CustomLSTM(nn.Module):
 # =========================================================
 
 def calculate_accuracy(y_pred, y_true):
-    # y_pred 的 shape 是 (batch_size, num_classes)
-    # 我們需要找到分數最高的那個類別作為預測結果
+    #The shape of y_pred is (batch_size, num_classes)
+	#We need to find the class with the highest score as the prediction result
     predicted_class = torch.argmax(F.softmax(y_pred, dim=1), dim=1)
     correct = (predicted_class == y_true).sum().item()
     accuracy = correct / len(y_true)
@@ -188,7 +188,7 @@ def create_sequences(features_df, labels_series, sequence_length=16):
     features_np = features_df.values
     labels_np = labels_series.values
 
-    # 從 sequence_length-1 的位置開始遍歷，確保每個點都能回溯到足夠長的序列
+    # Iterate starting from the position of sequence_length minus one, ensuring that each point can trace back to a sufficiently long sequence
     for i in range(sequence_length - 1, len(features_np)):
         start_index = i - sequence_length + 1
         end_index = i + 1
@@ -205,12 +205,12 @@ def normalize_sequences(x_tensor):
         min_val = sequence.min()
         max_val = sequence.max()
         
-        # 為了避免分母為零 (當序列中所有值都相同時)
+        # To avoid a division by zero (when all values in the sequence are the same)
         denominator = max_val - min_val
         if denominator > 0:
             normalized_tensor[i] = (sequence - min_val) / denominator
         else:
-            # 如果所有值都相同，標準化後就都是 0
+            # If all values are the same, they all become zero after standardization0
             normalized_tensor[i] = torch.zeros_like(sequence)
             
     return normalized_tensor
@@ -241,24 +241,24 @@ def saving(params, iteration_list, train_loss_list, test_loss_list, train_acc_li
     file_name = f"{exp_name}_NO_{params['exp_index']}_Epoch_{iteration_list[-1]}"
     os.makedirs(exp_name, exist_ok=True)
     
-    # 儲存 loss, accuracy 等指標
+    # Store metrics such as loss and accuracy
     with open(f"{exp_name}/{file_name}_metrics.pkl", "wb") as fp:
         pickle.dump({
             "train_loss": train_loss_list, "test_loss": test_loss_list,
             "train_acc": train_acc_list, "test_acc": test_acc_list
         }, fp)
     
-    # 儲存模型參數到 models 目錄
+    # Save model parameters to the models directory
     models_dir = "models"
     os.makedirs(models_dir, exist_ok=True)
     model_filename = f"qlstm_model_epochs_{iteration_list[-1]}.pth"
     torch.save(model.state_dict(), os.path.join(models_dir, model_filename))
     
-    # 呼叫新的繪圖函數 (您需要先定義好 plotting_curves)
+    # Call the new plotting function (you need to define plotting_curves first)
     plotting_curves(exp_name, file_name, iteration_list, train_loss_list, test_loss_list, 'Loss')
     plotting_curves(exp_name, file_name, iteration_list, train_acc_list, test_acc_list, 'Accuracy')
     
-    # 呼叫混淆矩陣繪圖函數
+    # Call the confusion matrix plotting function
     plotting_confusion_matrix(exp_name, file_name, y_true_test, y_pred_test)
 
 def plotting_curves(exp_name, file_name, iteration_list, train_vals, test_vals, curve_type='Loss'):
@@ -406,7 +406,7 @@ if __name__ == '__main__':
 		'sequence_length': 4,
 		'input_size': 6,   # will be updated in main() based on feature_columns
 		'hidden_size': 2,  # 4
-		'output_size': 2,  # (上漲>1.2%, 下跌>1.2%)
+		'output_size': 2,  # (Rise greater than 1.2%, Fall greater than 1.2%)
 		'qnn_depth': 1,    # 3
 		'batch_size': 4,
 		'learning_rate': 5e-3,
