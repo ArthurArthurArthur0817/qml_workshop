@@ -12,17 +12,17 @@ import pennylane as qml
 import time
 import threading
 
-# --- 專案路徑設定與模組引用 ---
+# --- Project Path Settings and Module Import ---
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
 
-# 引用 QLSTM 中的資料處理函式和模型類別
+# Import data processing functions and model classes from QLSTM
 from QLSTM.QLSTM_trading_final import (
     create_sequences, normalize_sequences,
     H_layer, RY_layer, entangling_layer, q_function,
     VQC, CustomQLSTMCell, CustomLSTM
 )
-# 引用 A3C 的輔助工具
+# Import helper utilities for A3C
 from QA3C.utils import v_wrap, set_init, push_and_pull, record
 from QA3C.plot_functions import full_plotting
 from QA3C.shared_adam import SharedAdam
@@ -30,24 +30,24 @@ from QA3C.shared_adam import SharedAdam
 os.environ["OMP_NUM_THREADS"] = "1"
 
 def print_model_summary(model: nn.Module, model_name: str = "Model"):
-    """
-    印出一個 PyTorch 模型的分層參數摘要，包含總參數數量。
+ """
+ Print a layered parameter summary for a PyTorch model, including the total number of parameters.
 
-    Args:
-        model (nn.Module): 要分析的 PyTorch 模型。
-        model_name (str): 顯示在摘要標題中的模型名稱。
-    """
+ Args:
+     model (nn.Module): The PyTorch model to analyze.
+     model_name (str): The name of the model to display in the summary title.
+ """
     print("=" * 70)
     print(f"{model_name} Parameters Summary")
     print("-" * 70)
-    print(f"{'層名稱 (Layer Name)':<35} {'形狀 (Shape)':<20} {'參數數量':>12}")
+    print(f"{'Layer Name':<35} {'Shape':<20} {'Number of Parameters':>12}")
     print("-" * 70)
     
     total_params = 0
     
-    # 遍歷模型中所有命名的參數
+    # Iterate through all named parameters in the model
     for name, param in model.named_parameters():
-        # 只計算需要計算梯度的參數（可訓練的參數）
+        # Only count parameters that require gradient calculation (trainable parameters)
         if param.requires_grad:
             num_params = param.numel()
             total_params += num_params
@@ -55,10 +55,10 @@ def print_model_summary(model: nn.Module, model_name: str = "Model"):
             print(f"{name:<35} {shape_str:<20} {num_params:>12,}")
             
     print("-" * 70)
-    print(f"總可訓練參數 (Total Trainable Parameters): {total_params:>15,}")
+    print(f"Total Trainable Parameters: {total_params:>15,}")
     print("=" * 70)
 
-# QLSTM 參數
+# QLSTM parameters
 qlstm_params = {
     'feature_columns': ['open', 'high', 'low', 'close', 'ma5', 'ma10'],
     'sequence_length': 4, # 8
@@ -88,40 +88,40 @@ def load_qlstm_model(model_path, device):
     return lstm_model
 
 def prepare_trading_data(file_path, num_rows=10000):
-    """
-    專為交易環境設計的資料準備函式.
-    包含 ma5, ma10 技術指標都先算好, 並移除 NaN 值, 以求簡化.
-    """
+     """
+     Data preparation function specifically designed for trading environments.
+     Includes pre-calculation of technical indicators like ma5 and ma10, and removal of NaN values for simplification.
+     """
     df = pd.read_csv(file_path)
     df = df[::-1].reset_index(drop=True)
     print(df.head())
     
-    # 預先計算好所有特徵
+    # Pre-calculate all features
     df['ma5'] = df['close'].rolling(window=5).mean()
     df['ma10'] = df['close'].rolling(window=10).mean()
     
     df.dropna(inplace=True)
     df.reset_index(drop=True, inplace=True)
     
-    # 檢查是否存在價格為 0 的異常資料
+    # Check for abnormal data where the price is 0
     zero_price_rows = df[df['close'] == 0]
     if not zero_price_rows.empty:
-        print("錯誤：在資料中發現 'close' 價格為 0 的異常行：")
+        print("Error: Abnormal row found in data where 'close' price is 0:")
         print(zero_price_rows)
-        raise ValueError("資料驗證失敗：'close' 價格不應為 0。請檢查原始資料檔案。")
+        raise ValueError("Data validation failed: 'close' price should not be 0. Please check the original data file.")
 
     if df.empty:
-        raise ValueError("錯誤：經過資料清理後，沒有剩餘的有效資料可供訓練。請檢查原始資料檔案。")
+        raise ValueError("Error: After data cleaning, there is no valid data remaining for training. Please check the original data file.")
 
     return df
 
 class TradingEnv:
     """
-    經過驗證的最佳交易環境 (The Proven Best Environment) - State 已修正版
-
-    這個版本修正了 state representation，移除了所有無效的佔位符，
-    並使用 8 個完整、經過正規化的金融特徵來建構觀測值，
-    為 Agent 提供豐富且穩定的決策依據。
+     The Proven Best Trading Environment - State Corrected Version
+    
+     This version corrects the state representation by removing all invalid placeholders
+     and uses 8 complete, normalized financial features to construct the observations,
+     providing the Agent with a rich and stable basis for decision-making.
     """
     def __init__(self, df, lstm_model, device, time_penalty=0.02):
         self.df = df.copy()
@@ -130,16 +130,16 @@ class TradingEnv:
         self.sequence_length = qlstm_params['sequence_length']
         self.feature_columns = qlstm_params['feature_columns']
         self.time_penalty = time_penalty
-        self.volatility_window = 20  # 新增：用於計算波動率的窗口大小
-
-        # 預先計算所有需要的技術指標
+        self.volatility_window = 20  # New addition: window size for calculating volatility
+        
+        # Pre-calculate all required technical indicators
         for window in [5, 20, 60]:
             if f'ma{window}' not in self.df.columns:
                 self.df[f'ma{window}'] = self.df['close'].rolling(window=window).mean()
         self.df.dropna(inplace=True)
         self.df.reset_index(drop=True, inplace=True)
         
-        # [已修正] 觀測空間維度 = LSTM 輸出維度 + 8 個額外特徵
+        # [Corrected] Observation space dimension = LSTM output dimension + 8 additional features
         self.observation_space_shape = (qlstm_params['output_size'] + 8,)
         self.action_space_n = 3
 
@@ -149,9 +149,9 @@ class TradingEnv:
 
     def _get_state(self):
         """
-        [已修正] 產生一個由 8 個有意義的特徵組成的 state 向量。
+        # [Corrected] Generate a state vector composed of 8 meaningful features.
         """
-        # 1. LSTM 輸出 (市場趨勢預測)
+        # 1. LSTM Output (Market trend prediction)
         start = self.current_step - self.sequence_length + 1
         end = self.current_step + 1
         sequence_df = self.df.iloc[start:end]
@@ -164,20 +164,20 @@ class TradingEnv:
             lstm_state = F.softmax(logits, dim=1).squeeze(0).cpu()
             # print('lstm_state', lstm_state)
 
-        # 2. 計算 8 個額外的金融特徵
+        # 2. Calculate 8 additional financial features
         current_price = self.df['close'].iloc[self.current_step]
         ma5 = self.df['ma5'].iloc[self.current_step]
         ma20 = self.df['ma20'].iloc[self.current_step]
         ma60 = self.df['ma60'].iloc[self.current_step]
 
-        # 特徵 1: 現金比例
+        # Feature 1: Cash ratio
         cash_ratio = self.cash / self.initial_cash
         
-        # 特徵 2: 持倉價值比例
+       # Feature 2: Position value ratio
         holdings_value = sum(self.active_trades_shares) * current_price
         holdings_ratio = holdings_value / self.initial_cash
         
-        # 特徵 3 & 4: 未實現損益 和 成本現價比
+        # Feature 3 & 4: Unrealized profit/loss and Cost-to-current price ratio
         unrealized_pnl_pct = 0.0
         avg_price_ratio = 0.0
         if sum(self.active_trades_shares) > 0:
@@ -187,14 +187,14 @@ class TradingEnv:
             if current_price > 0:
                 avg_price_ratio = (current_price - avg_buy_price) / current_price
         
-        # 特徵 5 & 6: 價格與中/長期均線的乖離率
+        # Feature 5 & 6: Deviation rate of price from medium/long-term moving averages
         price_ma20_ratio = (current_price - ma20) / ma20 if ma20 > 0 else 0.0
         price_ma60_ratio = (current_price - ma60) / ma60 if ma60 > 0 else 0.0
 
-        # 特徵 7: 短期與中期均線的乖離率 (判斷趨勢動能)
+        # Feature 7: Deviation rate of short-term from medium-term moving average (to judge trend momentum)
         ma5_ma20_ratio = (ma5 - ma20) / ma20 if ma20 > 0 else 0.0
         
-        # 特徵 8: 近期價格波動率
+        # Feature 8: Recent price volatility
         if self.current_step >= self.volatility_window:
             recent_prices = self.df['close'].iloc[self.current_step - self.volatility_window : self.current_step]
             mean_price = np.clip(np.mean(recent_prices), 1e-9, np.inf)
@@ -202,7 +202,7 @@ class TradingEnv:
         else:
             price_volatility = 0.0
 
-        # 組合所有特徵成一個 tensor
+        # Combine all features into a single tensor
         additional_state = torch.tensor([
             cash_ratio,
             holdings_ratio,
@@ -221,7 +221,7 @@ class TradingEnv:
         self.active_trades_shares = []
 
     def reset(self):
-        # 從第 60 步開始，確保所有 MA 指標都有值
+        # Start from step 60 to ensure all MA indicators have values
         self.current_step = 60 
         self.cash = self.initial_cash
         self.portfolio_value = self.initial_cash
@@ -235,7 +235,7 @@ class TradingEnv:
         done = self.current_step >= len(self.df) - 1
         current_price = self.df['close'].iloc[self.current_step]
         info = {'action_taken': 'hold'}
-        # 預設獎勵為時間懲罰，鼓勵 Agent 採取行動
+        # Default reward is a time penalty, encouraging the Agent to take action
         reward = -self.time_penalty
 
         ma5 = self.df['ma5'].iloc[self.current_step]
@@ -249,12 +249,12 @@ class TradingEnv:
                 self.active_trades_buy_prices.append(current_price)
                 self.active_trades_shares.append(shares_bought)
                 info['action_taken'] = 'buy'
-                reward += 0.5  # 順勢交易的即時獎勵
+                reward += 0.5  # Immediate reward for trend-following trades
             elif self.cash >= self.trade_amount_per_time and not is_uptrend:
-                reward -= 2.0  # 對逆勢買入的懲罰
+                reward -= 2.0  # Penalty for counter-trend buying
             else:
                 info['action_taken'] = 'invalid_buy'
-                reward -= 0.5  # 對無效買入的懲罰
+                reward -= 0.5  # Penalty for invalid buying
 
         elif action == 2:  # Sell
             total_shares = sum(self.active_trades_shares)
@@ -266,31 +266,31 @@ class TradingEnv:
 
                 if realized_profit > 0:
                     # if pnl_pct >= 0.015:
-                    #     # 達到利潤目標，給予巨大獎勵
-                    #     reward += 10.0 + pnl_pct * 50
+                    #     # Reached profit target, grant a huge reward
+                    #     # reward += 10.0 + pnl_pct * 50
                     # else:
-                    #     # 未達目標但仍獲利，給予較小的獎勵，鼓勵再等等
-                    #     reward += 10.0 + pnl_pct * 10
+                    #     # Profitable but not yet at target, grant a smaller reward to encourage waiting
+                    #     # reward += 10.0 + pnl_pct * 10
                     reward += 10.0 + pnl_pct * 50
                 else:
                     cost_basis = avg_buy_price * total_shares
                     pnl_pct = realized_profit / cost_basis if cost_basis > 0 else 0
-                    reward -= 2.0 + pnl_pct * 10 # 對虧損賣出的懲罰
+                    reward -= 2.0 + pnl_pct * 10 # Penalty for selling at a loss
                     
                 self.cash += total_shares * current_price
                 info['action_taken'] = 'sell'
                 self._reset_trade_state()
             else:
                 info['action_taken'] = 'invalid_sell'
-                reward -= 0.5 # 懲罰無倉可賣的行為
+                reward -= 0.5 # Penalty for attempting to sell when there is no position to sell
         
-        # 對未實現虧損的持續懲罰
+        # Continuous penalty for realized losses
         total_shares = sum(self.active_trades_shares)
         if total_shares > 0 and info['action_taken'] != 'sell':
             avg_buy_price = np.average(self.active_trades_buy_prices, weights=self.active_trades_shares)
             unrealized_pnl_pct = (current_price - avg_buy_price) / avg_buy_price
             if unrealized_pnl_pct < 0:
-                # 虧損越大，懲罰越重 (二次方懲罰)
+                # The larger the loss, the heavier the penalty (quadratic penalty)
                 reward += unrealized_pnl_pct * abs(unrealized_pnl_pct) * 5.0
         
         current_holdings_value = sum(self.active_trades_shares) * current_price
@@ -304,7 +304,7 @@ class TradingEnv:
 
         return next_state, final_reward, done, False, info
 
-# --- A3C 模型與 Worker ---
+# --- A3C Model and Worker ---
 class Net(nn.Module):
     def __init__(self, s_dim, a_dim):
         super(Net, self).__init__()
@@ -332,7 +332,9 @@ class Net(nn.Module):
         return m.sample().numpy()[0]
 
     def choose_best_action(self, s):
-        """[新增] 在評估時，選擇機率最高的動作"""
+        """
+        # [New] Select the action with the highest probability during evaluation
+        """
         self.eval()
         logits, _ = self.forward(s)
         prob = F.softmax(logits, dim=1)
@@ -379,11 +381,11 @@ class Worker(mp.Process):
         
         total_step = 1
         while self.g_ep.value < A3C_PARAMS['max_ep']:
-            episode_start_time = time.time()  # 記錄 episode 開始時間
+            episode_start_time = time.time()  
             s = self.env.reset()
             buffer_s, buffer_a, buffer_r = [], [], []
             ep_r = 0.
-            episode_steps = 0  # 記錄 episode 步數
+            episode_steps = 0  
             
             while True:
                 episode_steps += 1
@@ -400,7 +402,7 @@ class Worker(mp.Process):
                     buffer_s, buffer_a, buffer_r = [], [], []
 
                 if done:
-                    episode_time = time.time() - episode_start_time  # 計算 episode 執行時間
+                    episode_time = time.time() - episode_start_time  
                     record(self.g_ep, self.g_ep_r, ep_r, self.res_queue, self.name)
                     print(f"{self.name} | Episode {self.g_ep.value} | Time: {episode_time:.2f}s | Steps: {episode_steps} | Reward: {ep_r:.2f}")
                     break
@@ -411,11 +413,11 @@ class Worker(mp.Process):
 
 def plot_trade_history(df, trade_log, portfolio_history, initial_cash, filename, title):
     """
-    [修改] 繪製收盤價、買賣點以及累積損益的可視化圖表。
-    """
+     [Modified] Plot the visualization chart for closing prices, buy/sell points, and cumulative profit/loss.
+    ""
     plt.style.use('seaborn-v0_8-darkgrid')
     
-    # 建立兩個子圖，垂直堆疊，共享 x 軸
+    # Create two subplots, stacked vertically, sharing the x-axis
     fig, (ax1, ax2) = plt.subplots(
         2, 1, 
         figsize=(20, 15), 
@@ -424,7 +426,7 @@ def plot_trade_history(df, trade_log, portfolio_history, initial_cash, filename,
     )
     fig.suptitle(f'Agent Trading Performance on {title}', fontsize=22)
 
-    # --- 上方圖表: 價格與交易訊號 ---
+    # --- Upper Plot: Price and Trading Signals ---
     ax1.plot(df.index, df['close'], label='Close Price', color='dodgerblue', alpha=0.8, linewidth=1.5)
     
     buy_indices = [item['step'] for item in trade_log if item['action'] == 'buy']
@@ -443,14 +445,14 @@ def plot_trade_history(df, trade_log, portfolio_history, initial_cash, filename,
     ax1.grid(True)
     ax1.tick_params(axis='y', labelsize=12)
 
-    # --- 下方圖表: 累積損益 (Cumulative PnL) ---
+   # --- Lower Plot: Cumulative PnL (Cumulative Profit/Loss) ---
     if portfolio_history:
         portfolio_values = np.array(portfolio_history)
         cumulative_pnl = portfolio_values - initial_cash
         
         ax2.plot(df.index, cumulative_pnl, label='Cumulative PnL', color='purple', linewidth=2)
         
-        # 為正負損益區域上色
+        # Color the area for positive and negative profit/loss
         ax2.fill_between(df.index, cumulative_pnl, where=(cumulative_pnl >= 0), color='green', alpha=0.3, interpolate=True)
         ax2.fill_between(df.index, cumulative_pnl, where=(cumulative_pnl < 0), color='red', alpha=0.3, interpolate=True)
         
@@ -461,9 +463,9 @@ def plot_trade_history(df, trade_log, portfolio_history, initial_cash, filename,
     ax2.set_xlabel(f'Time Steps in {title}', fontsize=15)
     ax2.tick_params(axis='both', labelsize=12)
     
-    # 調整佈局
+    
     plt.tight_layout()
-    plt.subplots_adjust(top=0.95, hspace=0.1) # 為 suptitle 留出空間，並減少子圖間距
+    plt.subplots_adjust(top=0.95, hspace=0.1) 
     # plt.savefig(filename)
     plt.show()
     plt.close()
@@ -471,7 +473,7 @@ def plot_trade_history(df, trade_log, portfolio_history, initial_cash, filename,
 
 def run_evaluation(df, gnet, lstm_model, device, title, filename):
     """
-    [修改] 執行評估、繪圖，並返回包含所有結果的字典。
+     [Modified] Execute evaluation, plotting, and return a dictionary containing all results.
     """
     print(f"\n在 {title} 上執行評估...")
     eval_df = df.reset_index(drop=True)
@@ -499,7 +501,7 @@ def run_evaluation(df, gnet, lstm_model, device, title, filename):
     padding_size = len(eval_df) - len(portfolio_history)
     padded_history = [eval_env.initial_cash] * padding_size + portfolio_history
 
-    # 繪圖函式保持不變
+   
     plot_trade_history(
         df=eval_df, 
         trade_log=trade_log_for_plot, 
@@ -509,11 +511,11 @@ def run_evaluation(df, gnet, lstm_model, device, title, filename):
         title=title
     )
 
-    # 計算並取得績效指標
+    
     performance_metrics = calculate_and_print_metrics(eval_env, title, trade_log_for_plot)
-    print(f"{title} 評估與繪圖完成。")
+    print(f"{title} Evaluation and plotting complete.")
 
-    # 將所有結果打包成一個字典並返回
+    # Pack all results into a dictionary and return
     results = {
         'trade_log': trade_log_for_plot,
         'portfolio_history': portfolio_history,
@@ -525,19 +527,19 @@ def run_evaluation(df, gnet, lstm_model, device, title, filename):
 
 def calculate_and_print_metrics(eval_env, title, trade_log_for_plot):
     """
-    [修改] 計算、印出並返回詳細的交易績效指標字典。
+     [Modified] Calculate, print, and return a dictionary of detailed trading performance metrics.
     """
-    print(f"\n--- {title} 績效指標 ---")
-    metrics = {} # 新增：用來儲存指標的字典
+    print(f"\n--- {title} Performance Metrics ---")
+    metrics = {} # New addition: dictionary to store metrics
 
-    # 1. 總回報率 (Total Return)
+    # 1. Total Return
     initial_value = eval_env.initial_cash
     final_value = eval_env.portfolio_value
     total_return_pct = ((final_value - initial_value) / initial_value) * 100
     metrics['total_return_pct'] = total_return_pct
-    print(f"1. 總回報率 (Total Return): {total_return_pct:.2f}%")
+    print(f"1. Total Return: {total_return_pct:.2f}%")
 
-    # 2. 最大回撤 (Max Drawdown)
+    # 2. Max Drawdown
     portfolio_history = np.array(eval_env.portfolio_history)
     max_drawdown_pct = 0.0
     if len(portfolio_history) >= 2:
@@ -546,9 +548,9 @@ def calculate_and_print_metrics(eval_env, title, trade_log_for_plot):
         if np.any(drawdowns > 0):
             max_drawdown_pct = np.max(drawdowns) * 100
     metrics['max_drawdown_pct'] = max_drawdown_pct
-    print(f"2. 最大回撤 (Max Drawdown): {max_drawdown_pct:.2f}%")
+    print(f"2. Max Drawdown: {max_drawdown_pct:.2f}%")
 
-    # --- 從交易日誌計算勝率等指標 ---
+    # --- Calculate win rate and other metrics from the trading log ---
     completed_trades = []
     active_buy_prices = []
     trade_amount = eval_env.trade_amount_per_time
@@ -569,7 +571,7 @@ def calculate_and_print_metrics(eval_env, title, trade_log_for_plot):
 
     total_trades = len(completed_trades)
     metrics['total_trades'] = total_trades
-    print(f"3. 總交易次數 (Total Trades): {total_trades}")
+    print(f"3. Total Trades: {total_trades}")
 
     if total_trades > 0:
         winning_trades = sum(1 for t in completed_trades if t['profit'] > 0)
@@ -582,18 +584,18 @@ def calculate_and_print_metrics(eval_env, title, trade_log_for_plot):
             'best_trade_pct': best_trade_pct,
             'worst_trade_pct': worst_trade_pct
         })
-        print(f"4. 勝率 (Win Rate): {win_rate_pct:.2f}%")
-        print(f"5. 最佳交易 (Best Trade): {best_trade_pct:.2f}%")
-        print(f"6. 最差交易 (Worst Trade): {worst_trade_pct:.2f}%")
+        print(f"4. Win Rate: {win_rate_pct:.2f}%")
+        print(f"5. Best Trade: {best_trade_pct:.2f}%")
+        print(f"6. Worst Trade: {worst_trade_pct:.2f}%")
     else:
         metrics.update({'win_rate_pct': 0, 'best_trade_pct': 0, 'worst_trade_pct': 0})
-        # ... 省略印出 N/A ...
+        
 
     print("-" * 25)
     
-    return metrics # 新增：返回指標字典
+    return metrics
 
-# --- 主程式 ---
+# --- main ---
 A3C_PARAMS = {
     'update_global_iter': 30,
     'gamma': 0.995,
@@ -605,11 +607,11 @@ A3C_PARAMS = {
 }
 
 if __name__ == "__main__":
-    # --- 步驟 1: 載入預訓練 LSTM 模型 ---
+    # --- Step 1: Load Pre-trained LSTM Model ---
     print("載入預訓練的 QLSTM 模型...")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # 初始化 QLSTM 模型
+    # Initialize QLSTM model
     qlstm_cell = CustomQLSTMCell(
         input_size=qlstm_params['input_size'],
         hidden_size=qlstm_params['hidden_size'],
@@ -629,13 +631,13 @@ if __name__ == "__main__":
     # lstm_model.share_memory()  # Removed - can't pickle quantum devices
     print("QLSTM 模型載入完成。")
 
-    # --- 步驟 2: 準備資料 ---
+    # --- Step 2: Prepare Data ---
     print("準備交易資料...")
     data_path = os.path.join(project_root, 'QLSTM', 'USD_TWD_Historical Data.csv')
-    # 使用全新的、穩健的函式來準備資料
+    
     full_data_df = prepare_trading_data(file_path=data_path, num_rows=10000)
 
-    # [新增資料驗證程序] 檢查是否存在價格為 0 的異常資料
+    
     zero_price_rows = full_data_df[full_data_df['close'] == 0]
     if not zero_price_rows.empty:
         print("錯誤：在資料中發現 'close' 價格為 0 的異常行：")
@@ -690,10 +692,10 @@ if __name__ == "__main__":
     opt = SharedAdam(gnet.parameters(), lr=A3C_PARAMS['lr'], betas=(0.92, 0.999))
     global_ep, global_ep_r, res_queue = mp.Value('i', start_episode), mp.Value('d', 0.), mp.Queue()
 
-    # --- 步驟 4: 啟動並行訓練 ---
+    # --- Step 4: Start Parallel Training ---
     num_workers = min(mp.cpu_count(), 10)
     print(f'[cpu_count] {mp.cpu_count()}')
-    print(f"啟動 {num_workers} 個 Worker 進行並行訓練...")
+    print(f"Starting {num_workers} Workers for parallel training...")
     
     # Create models directory if it doesn't exist
     models_dir = os.path.join(project_root, 'QA3C', 'models')
@@ -724,7 +726,7 @@ if __name__ == "__main__":
     )
     checkpoint_thread.start()
     
-    training_start_time = time.time()  # 記錄整體訓練開始時間
+    training_start_time = time.time()  
     workers = [Worker(gnet, opt, global_ep, global_ep_r, res_queue, i, train_df, model_path, device) for i in range(num_workers)]
     [w.start() for w in workers]
     
@@ -736,13 +738,13 @@ if __name__ == "__main__":
         else:
             break
     [w.join() for w in workers]
-    training_total_time = time.time() - training_start_time  # 計算總訓練時間
-    print(f"\n訓練完成。總訓練時間: {training_total_time:.2f} 秒")
-    print(f"總共執行 {len(res)} 個 episodes")
-    print(f"平均每個 episode 執行時間: {training_total_time/len(res):.2f} 秒")
+    training_total_time = time.time() - training_start_time  
+    print(f"\nTraining complete. Total training time: {training_total_time:.2f} seconds") 
+    print(f"Total {len(res)} episodes executed") 
+    print(f"Average time per episode: {training_total_time/len(res):.2f} seconds")
 
-    # --- 步驟 5: 儲存與繪圖 ---
-    print("儲存模型與繪製結果...")
+    # --- Step 5: Save and Plot ---
+    print("Saving model and plotting results...")
     full_plotting(_fileTitle="A3C_Trading_Agent", _trainingLength=len(res), _currentRewardList=res)
     
     # Save final model with episode number
@@ -760,13 +762,13 @@ if __name__ == "__main__":
     
     # Also save with original filename for backward compatibility
     torch.save(gnet.state_dict(), "A3C_trading_model.pth")
-    print("結果已儲存。")
+    print("Results saved.")
     
-    # --- [修改] 步驟 6: 在訓練集與測試集上評估並繪製交易點位圖 ---
+    # --- [Modified] Step 6: Evaluate and Plot Trading Points on Training and Testing Sets ---
     all_results = {}
-    print("\n--- 開始執行評估 ---")
+    print("\n--- Starting evaluation ---")
     
-    # 評估訓練集
+    
     train_results = run_evaluation(
         df=train_df, 
         gnet=gnet, 
@@ -777,7 +779,7 @@ if __name__ == "__main__":
     )
     all_results['training'] = train_results
     
-    # 評估測試集
+    
     test_df = full_data_df[split_point:]
     print('*** testing info ***')
     print(train_df.head(2), train_df.tail(2))
@@ -798,5 +800,5 @@ if __name__ == "__main__":
     with open(pickle_filepath, 'wb') as f:
         pickle.dump(all_results, f)
     
-    print(f"\n所有 train 和 test 的交易結果已成功儲存至: {pickle_filepath}")
-    print("\n所有評估與繪圖完成。")
+    print(f"\nAll train and test trading results have been successfully saved to: {pickle_filepath}")
+    print("\nAll evaluation and plotting complete.")
