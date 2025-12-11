@@ -23,10 +23,10 @@ def create_features_and_labels(file_path, num_rows=1000):
 
     df['label'] = np.nan
     golden_cross = (df['ma5'].shift(1) <= df['ma10'].shift(1)) & (df['ma5'] > df['ma10'])
-    df.loc[golden_cross, 'label'] = 1  # 上漲為 1
+    df.loc[golden_cross, 'label'] = 1  # Rise is 1
 
     death_cross = (df['ma5'].shift(1) >= df['ma10'].shift(1)) & (df['ma5'] < df['ma10'])
-    df.loc[death_cross, 'label'] = 0  # 下跌為 0
+    df.loc[death_cross, 'label'] = 0  # Fall is 0
     del df['volume']
 
     df.dropna(subset=['ma10'], inplace=True)
@@ -39,11 +39,11 @@ def create_sequences(features_df, labels_series, sequence_length=16):
     features_np = features_df.values
     labels_np = labels_series.values
 
-    # 從 sequence_length-1 的位置開始遍歷，確保每個點都能回溯到足夠長的序列
+    # Iterate starting from the position of sequence_length minus one, ensuring that each point can trace back to a sufficiently long sequence
     for i in range(sequence_length - 1, len(features_np)):
         current_label = labels_np[i]
         
-        # 只要有 label 0 or 1
+        # As long as there is label 0 or 1
         if not np.isnan(current_label):
             start_index = i - sequence_length + 1
             end_index = i + 1
@@ -60,12 +60,12 @@ def normalize_sequences(x_tensor):
         min_val = sequence.min()
         max_val = sequence.max()
         
-        # 為了避免分母為零 (當序列中所有值都相同時)
+        # To avoid a division by zero (when all values in the same sequence are identical)
         denominator = max_val - min_val
         if denominator > 0:
             normalized_tensor[i] = (sequence - min_val) / denominator
         else:
-            # 如果所有值都相同，標準化後就都是 0
+            # If all values are identical, they all become 0 after standardization
             normalized_tensor[i] = torch.zeros_like(sequence)
             
     return normalized_tensor
@@ -77,7 +77,7 @@ def visualize_training_samples(X_train, y_train):
         ohlc_data = X_train[i, :, :4]
         label = y_train[i]
         
-        # 準備 K 線圖所需的核心 OHLC DataFrame
+        # Prepare the core OHLC DataFrame required for the candlestick chart
         ohlc_data = X_train[i, :, :4].numpy()
         dates = pd.date_range(end=pd.Timestamp.now(), periods=ohlc_data.shape[0], freq='D')
         plot_df = pd.DataFrame(
@@ -86,11 +86,11 @@ def visualize_training_samples(X_train, y_train):
             index=dates
         )
         
-        # 準備要疊加的 MA 數據
+        # Prepare the MA data to be overlaid
         ma5_data = X_train[i, :, 4].numpy()
         ma10_data = X_train[i, :, 5].numpy()
         
-        # 使用 mplfinance 的 make_addplot 功能來準備疊加圖層
+        # Use mplfinance's make_addplot function to prepare the overlay plots
         additional_plots = [
             mpf.make_addplot(ma5_data, color='blue', panel=0, width=0.7, secondary_y=False),
             mpf.make_addplot(ma10_data, color='orange', panel=0, width=0.7, secondary_y=False)
@@ -126,10 +126,10 @@ class StandardLSTM(nn.Module):
 
 def plot_confusion_matrix(y_true, y_pred, class_names):
     """
-    繪製並顯示混淆矩陣。
-    :param y_true: 真實標籤
-    :param y_pred: 預測標籤
-    :param class_names: 類別名稱列表
+    Draw and display the confusion matrix.
+      :param y_true: True labels
+      :param y_pred: Predicted labels
+      :param class_names: List of class names
     """
     cm = confusion_matrix(y_true, y_pred)
     plt.figure(figsize=(8, 6))
@@ -141,7 +141,7 @@ def plot_confusion_matrix(y_true, y_pred, class_names):
     plt.tight_layout()
     plt.show()
 
-# 不放在 main 裡面，是為了讓 A3C_trading.py 可以載入這些參數
+# Not placing this within main is to allow A3C_trading.py to load these parameters
 params = {
     'feature_columns': ['open', 'high', 'low', 'close', 'ma5', 'ma10'],
     'sequence_length': 8,
@@ -154,20 +154,20 @@ params = {
 }
 
 if __name__ == "__main__":
-    # 步驟 1: 建立包含所有 features 和 labels 的 DataFrame
+    # Step 1: Create a DataFrame containing all features and labels
     full_data_df = create_features_and_labels(file_path='USD_TWD_Historical Data.csv', num_rows=10000)
 
-    # 步驟 2: 分割 DataFrame 為訓練集和測試集
+    # Step 2: Split the DataFrame into training and testing sets
     split_point = int(len(full_data_df) * 0.8)
     train_df = full_data_df[:split_point]
     test_df = full_data_df[split_point:]
     test_df.reset_index(inplace=True, drop=True)
 
-    # 步驟 3: 轉成 LSTM 格式
+    # Step 3: Convert to LSTM format
     X_train, y_train = create_sequences(train_df[params['feature_columns']], train_df['label'], params['sequence_length'])
     X_test, y_test = create_sequences(test_df[params['feature_columns']], test_df['label'], params['sequence_length'])
 
-    # 步驟 4: 進行 Instance-wise Normalization
+    # Step 4: Perform Instance-wise Normalization
     X_train = normalize_sequences(X_train)
     X_test = normalize_sequences(X_test)
 
@@ -175,12 +175,12 @@ if __name__ == "__main__":
     test_dataset = TensorDataset(X_test, y_test)
     train_loader = DataLoader(dataset=train_dataset, batch_size=params['batch_size'], shuffle=True)
     test_loader = DataLoader(dataset=test_dataset, batch_size=params['batch_size'], shuffle=False)
-    print(f"資料準備完成。訓練集大小: {len(X_train)}, 測試集大小: {len(X_test)}")
+    print(f"Data preparation complete. Training set size: {len(X_train)}, Testing set size: {len(X_test)}")
 
-    # 測試時使用:
+    # Used during testing:
     # visualize_training_samples(X_train, y_train)
 
-    # 步驟 5: 定義 model & optimizer
+    # Step 5: Define model and optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"current device: {device}")
     model = StandardLSTM(
@@ -192,10 +192,10 @@ if __name__ == "__main__":
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=params['learning_rate'])
 
-    # 步驟 6: 訓練模型
+    # Step 6: Train the model
     start_time = time.time()
     for epoch in range(params['epochs']):
-        # --- 訓練階段 ---
+        # --- Training ---
         model.train()
         train_loss = 0
         for i, (sequences, labels) in enumerate(train_loader):
@@ -207,7 +207,7 @@ if __name__ == "__main__":
             optimizer.step()
             train_loss += loss.item()
 
-        # --- 驗證階段 ---
+        # --- Validation  ---
         model.eval()
         valid_loss = 0.0
         with torch.no_grad():
@@ -217,7 +217,7 @@ if __name__ == "__main__":
                 loss = criterion(outputs, labels)
                 valid_loss += loss.item()
 
-        # 計算平均損失
+        # Calculate the average loss
         avg_train_loss = train_loss / len(train_loader)
         avg_valid_loss = valid_loss / len(test_loader)
 
@@ -226,7 +226,7 @@ if __name__ == "__main__":
     end_time = time.time()
     print(f"Total runtime: {end_time - start_time:.2f} sec")
 
-    # 步驟 7: 儲存模型
+    # Step 7: Save the model
     model_dir = 'models'
     os.makedirs(model_dir, exist_ok=True)
 
@@ -234,7 +234,7 @@ if __name__ == "__main__":
     torch.save(model.state_dict(), model_path)
     print(f"Model saved to {model_path}")
 
-    # 步驟 8: 評估模型 + 混淆矩陣
+    # Step 8: Evaluate the model + Confusion Matrix
     model.eval()
     all_labels, all_preds = [], []
     with torch.no_grad():
@@ -249,6 +249,7 @@ if __name__ == "__main__":
     total = len(all_labels)
     print(f'Testing Accuracy: {100 * correct / total:.2f} %')
 
-    # 步驟 9: 畫混淆矩陣
+    # Step 9: Plot the confusion matrix
     class_names = ['Fall (0)', 'Rise (1)']
+
     plot_confusion_matrix(all_labels, all_preds, class_names)
